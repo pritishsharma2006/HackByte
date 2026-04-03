@@ -48,7 +48,8 @@ async def reply_interview(
     target_company: str = Form(...),
     mode: str = Form(...),
     history: str = Form(...), # JSON string array
-    user_text: str = Form(...) # Transcribed speech from browser
+    user_text: str = Form(...), # Transcribed speech from browser
+    current_code: str = Form(None) # Optional code string from Monaco
 ):
     try:
         # Parse history from the frontend
@@ -63,14 +64,21 @@ async def reply_interview(
             style="Realism & Adaptive Pressure"
         )
 
-        reply_text = await GeminiInterviewService.process_text_reply(parsed_history, user_text, system_prompt)
+        reply_text = await GeminiInterviewService.process_text_reply(parsed_history, user_text, system_prompt, current_code)
+
+        # Intercept and clean the coding tag so it isn't spoken aloud
+        is_coding = False
+        if "[CODING_ROUND]" in reply_text:
+            is_coding = True
+            reply_text = reply_text.replace("[CODING_ROUND]", "").strip()
 
         audio_bytes = await generate_speech(reply_text)
         audio_base64 = base64.b64encode(audio_bytes).decode('utf-8') if audio_bytes else None
 
         return {
             "reply": reply_text,
-            "audio_base64": audio_base64
+            "audio_base64": audio_base64,
+            "is_coding_round": is_coding
         }
     except Exception as e:
         traceback.print_exc()

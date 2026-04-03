@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import Editor from '@monaco-editor/react';
 import './index.css';
 
 function App() {
@@ -7,6 +8,9 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [messages, setMessages] = useState([]);
   const messagesRef = useRef([]);
+  const [showEditor, setShowEditor] = useState(false);
+  const [code, setCode] = useState("# Write your Python code here...\n");
+  const codeRef = useRef(code);
   
   const videoRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -21,7 +25,6 @@ function App() {
       })
       .catch(err => console.error("Error accessing media devices.", err));
 
-    // Setup Web Speech API for Client-Side STT
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
@@ -49,6 +52,11 @@ function App() {
       console.warn("SpeechRecognition API not supported in this browser.");
     }
   }, []);
+
+  const handleEditorChange = (value) => {
+      setCode(value);
+      codeRef.current = value;
+  };
 
   const handleStartInterview = async () => {
     try {
@@ -96,7 +104,7 @@ function App() {
     const currentSession = sessionRef.current;
     if (!currentSession) return;
     
-    // Optimistically update history with candidate's actual transcribed text
+    // Optimistically update history with candidate's true response
     const newMessages = [...messagesRef.current, { role: "candidate", content: transcript }];
     setMessages(newMessages);
     messagesRef.current = newMessages;
@@ -109,6 +117,11 @@ function App() {
     formData.append("history", JSON.stringify(messagesRef.current));
     formData.append("user_text", transcript);
 
+    // Provide the active code safely to Gemini's prompt space if the editor is out
+    if (showEditor) {
+        formData.append("current_code", codeRef.current);
+    }
+
     try {
       const res = await fetch("http://localhost:8000/api/interview/reply", {
         method: "POST",
@@ -120,6 +133,11 @@ function App() {
       const finalHistory = [...messagesRef.current, { role: "model", content: data.reply }];
       setMessages(finalHistory);
       messagesRef.current = finalHistory;
+
+      // Unfold the IDE panel intelligently
+      if (data.is_coding_round) {
+          setShowEditor(true);
+      }
       
       if (data.audio_base64) {
           const snd = new Audio("data:audio/mpeg;base64," + data.audio_base64);
@@ -131,40 +149,68 @@ function App() {
   };
 
   return (
-    <div style={{ padding: '20px', maxWidth: '900px', margin: 'auto' }}>
-      <h1>AI Interview Platform (Video Call)</h1>
+    <div style={{ padding: '20px', maxWidth: showEditor ? '1400px' : '900px', margin: 'auto', transition: 'max-width 0.5s ease' }}>
+      <h1 style={{ marginBottom: '20px' }}>AI Interview Platform (Video Call)</h1>
       
-      <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
-        <video 
-          ref={videoRef} 
-          autoPlay 
-          muted 
-          style={{ width: '450px', borderRadius: '10px', border: '2px solid #555' }}
-        />
+      <div style={{ display: 'flex', gap: '20px' }}>
         
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {!session ? (
-            <button onClick={handleStartInterview} style={btnStyle}>Start Interview</button>
-          ) : (
-            <>
-              <p style={{ color: '#aaa' }}>Session ID: {session}</p>
-              <button 
-                onClick={toggleRecording} 
-                style={{ ...btnStyle, backgroundColor: isRecording ? '#f44336' : '#4caf50' }}
-              >
-                {isRecording ? "Listening... (Click to Stop)" : "Record Answer"}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+        {/* Left pane: Media & Communication */}
+        <div style={{ flex: showEditor ? '0 0 450px' : '1', transition: 'flex 0.5s ease', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <video 
+            ref={videoRef} 
+            autoPlay 
+            muted 
+            style={{ width: '100%', borderRadius: '10px', border: '2px solid #555' }}
+            />
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {!session ? (
+                <button onClick={handleStartInterview} style={btnStyle}>Start Interview</button>
+            ) : (
+                <>
+                <p style={{ color: '#aaa', fontSize: '13px', margin: 0 }}>Session ID: {session.substring(0,8)}...</p>
+                <button 
+                    onClick={toggleRecording} 
+                    style={{ ...btnStyle, backgroundColor: isRecording ? '#f44336' : '#4caf50' }}
+                >
+                    {isRecording ? "Listening... (Click to Stop)" : "Record Answer"}
+                </button>
+                <button onClick={() => setShowEditor(!showEditor)} style={{...btnStyle, backgroundColor: '#555'}}>
+                    {showEditor ? "Hide Editor Panel" : "Open IDE Manually"}
+                </button>
+                </>
+            )}
+            </div>
 
-      <div style={{ border: '1px solid #444', borderRadius: '5px', padding: '15px', height: '300px', overflowY: 'auto' }}>
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`mb-2 ${msg.role === 'candidate' ? 'text-blue-300' : 'text-green-300'}`}>
-            <strong>{msg.role === 'candidate' ? 'You' : 'Interviewer'}:</strong> {msg.content}
-          </div>
-        ))}
+            <div style={{ border: '1px solid #444', borderRadius: '5px', padding: '15px', height: '350px', overflowY: 'auto' }}>
+            {messages.map((msg, idx) => (
+                <div key={idx} className={`mb-3 ${msg.role === 'candidate' ? 'text-blue-300' : 'text-green-300'}`}>
+                <strong>{msg.role === 'candidate' ? 'You' : 'Interviewer'}:</strong> {msg.content}
+                </div>
+            ))}
+            </div>
+        </div>
+
+        {/* Right pane: Dynamic Monaco Display */}
+        {showEditor && (
+            <div style={{ flex: 1, borderRadius: '10px', overflow: 'hidden', border: '2px solid #444', height: '800px', backgroundColor: '#1e1e1e' }}>
+                <Editor
+                    height="100%"
+                    theme="vs-dark"
+                    defaultLanguage="python"
+                    value={code}
+                    onChange={handleEditorChange}
+                    options={{
+                        minimap: { enabled: false },
+                        fontSize: 16,
+                        wordWrap: "on",
+                        scrollBeyondLastLine: false,
+                        padding: { top: 20 }
+                    }}
+                />
+            </div>
+        )}
+
       </div>
     </div>
   );

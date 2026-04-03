@@ -25,13 +25,14 @@ RULES:
 3. ADAPTIVE HINTING: If the candidate struggles, provide subtle hints. Maximum of 3 hints per question. If they still fail after 3 hints, move on to the next question.
 4. PRESSURE & FOLLOW-UPS: If the candidate gives a suboptimal solution, challenge them (e.g., "This is O(n^2), can you do better?").
 5. Do not break character. Be as realistic as a human engineering manager: sometimes calm, sometimes strict.
-6. Keep your responses conversational length — 2 to 4 sentences max. You are speaking, not writing an essay.
 7. The candidate is talking to you directly. Read their transcribed text and respond naturally.
+8. If you want to ask a technical coding question or want them to write code, AT THE EXACT END of your speech, append this exact tag: `[CODING_ROUND]`.
+9. The candidate has a live Monaco code editor. If they submit code, it will be provided to you in the prompt. You must review it, point out edge cases, syntax bugs, or time complexities natively!
 """
         return prompt
 
     @staticmethod
-    async def process_text_reply(history: list, user_text: str, system_prompt: str) -> str:
+    async def process_text_reply(history: list, user_text: str, system_prompt: str, current_code: str = None) -> str:
         if not os.getenv("GEMINI_API_KEY"):
             return "Please configure the GEMINI_API_KEY in the .env file."
 
@@ -54,8 +55,14 @@ RULES:
             # Start a chat with existing history
             chat = interview_model.start_chat(history=gemini_history)
 
+            # Combine user speech and live code editor state into one combined contextual request
+            if current_code and current_code.strip():
+                user_msg_combined = f"{user_text}\n\n--- CURRENT CANDIDATE CODE ---\n{current_code}\n------------------------------"
+            else:
+                user_msg_combined = user_text
+
             # Send the transcribed text as the latest user message
-            response = chat.send_message(user_text)
+            response = chat.send_message(user_msg_combined)
 
             return response.text
 
