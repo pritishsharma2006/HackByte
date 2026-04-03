@@ -4,9 +4,9 @@ import google.generativeai as genai
 # Setup Gemini Config
 genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
 
-# Use gemini-2.0-flash which is fast and supports audio natively
+# Use gemini-2.5-flash which is fast and supports audio natively
 model = genai.GenerativeModel(
-    'gemini-2.0-flash',
+    'gemini-2.5-flash',
     system_instruction=None  # We'll set this per-session
 )
 
@@ -38,7 +38,7 @@ RULES:
         try:
             # Build a model with the system instruction baked in
             interview_model = genai.GenerativeModel(
-                'gemini-3-flash-preview',
+                'gemini-2.5-flash',
                 system_instruction=system_prompt
             )
 
