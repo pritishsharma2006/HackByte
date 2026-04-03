@@ -1,35 +1,26 @@
-import os
-import httpx
-
-VOICE_ID = "qMQOB3tFW2YBGdNHa6xE"
+from gtts import gTTS
+import asyncio
+from io import BytesIO
 
 async def generate_speech(text: str) -> bytes:
-    api_key = os.getenv("ELEVENLABS_API_KEY", "")
-    if not api_key:
-        print("Warning: ELEVENLABS_API_KEY missing, skipping TTS.")
+    """
+    Generates text-to-speech using Google's free TTS.
+    Since ElevenLabs quota was completely blocked ("Unusual Activity"), 
+    this bypasses API keys and gives seamless MP3 byte output directly to the frontend.
+    """
+    if not text.strip():
         return b""
 
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
+    try:
+        # We wrap the synchronous gTTS call in a thread to keep FastAPI completely non-blocking
+        def _sync_gtts():
+            tts = gTTS(text=text, lang='en', slow=False)
+            fp = BytesIO()
+            tts.write_to_fp(fp)
+            return fp.getvalue()
 
-    headers = {
-        "xi-api-key": api_key,
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "text": text,
-        "model_id": "eleven_multilingual_v2"
-    }
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, json=data, headers=headers, timeout=20.0)
-            if response.status_code == 200:
-                print(f"ElevenLabs TTS success: {len(response.content)} bytes")
-                return response.content
-            else:
-                print(f"ElevenLabs error ({response.status_code}): {response.text[:200]}")
-                return b""
-        except Exception as e:
-            print(f"ElevenLabs request failed: {e}")
-            return b""
+        # Run completely async
+        return await asyncio.to_thread(_sync_gtts)
+    except Exception as e:
+        print(f"gTTS error: {e}")
+        return b""

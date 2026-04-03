@@ -38,7 +38,7 @@ RULES:
         try:
             # Build a model with the system instruction baked in
             interview_model = genai.GenerativeModel(
-                'gemini-2.0-flash',
+                'gemini-3-flash-preview',
                 system_instruction=system_prompt
             )
 
