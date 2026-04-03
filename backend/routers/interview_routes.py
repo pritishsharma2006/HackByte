@@ -101,8 +101,34 @@ async def reply_interview(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @router.post("/end")
-async def end_interview(session_id: str = Form(...), history: str = Form(...)):
-    return {
-        "status": "completed",
-        "detailed_report": "Detailed final report — implementation pending LLM summary prompt."
-    }
+async def end_interview(
+    session_id: str = Form(...), 
+    history: str = Form(...),
+    mode: str = Form("Full-Fledged"),
+    target_company: str = Form("Google"),
+    question_title: str = Form(None)
+):
+    try:
+        try:
+            parsed_history = json.loads(history)
+        except Exception:
+            parsed_history = []
+
+        question_data = None
+        if question_title:
+            question_data = {"title": question_title}
+
+        detailed_report = await GeminiInterviewService.generate_interview_report(
+            history=parsed_history,
+            mode=mode,
+            company=target_company,
+            question_data=question_data
+        )
+
+        return {
+            "status": "completed",
+            "detailed_report": detailed_report
+        }
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})

@@ -11,14 +11,26 @@ function App() {
   const [showEditor, setShowEditor] = useState(false);
   const [code, setCode] = useState("# Write your Python code here...\n");
   const codeRef = useRef(code);
+  const defaultCodeStr = "# Write your Python code here...\n";
   const idleTimerRef = useRef(null);
+  const activeObserverRef = useRef(null);
+  const timerIntervalRef = useRef(null);
+  const lastSentCodeRef = useRef(code);
   const [questionData, setQuestionData] = useState(null);
+  const [timeElapsed, setTimeElapsed] = useState(0);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const speechBufferRef = useRef("");
+  const speechTimeoutRef = useRef(null);
+  
+  // Phase 3 Analytics States
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [interviewReport, setInterviewReport] = useState(null);
   
   // Dynamic Configuration Settings
   const [candidateName, setCandidateName] = useState("");
   const [company, setCompany] = useState("Google");
   const [mode, setMode] = useState("Full-Fledged");
-  const [resume, setResume] = useState("Software Engineer with Python and React experience.");
+  const [resume, setResume] = useState("Software Engineer with CPP and React experience.");
 
   const videoRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -54,9 +66,25 @@ function App() {
             transcriptBlock += event.results[i][0].transcript;
         }
 
-        if (transcriptBlock.trim()) {
-            console.log("Transcribed speech:", transcriptBlock);
-            sendSpeechToBackend(transcriptBlock);
+        // Prevent ghost audio feedback loop or tiny throat clears triggering the LLM natively
+        if (transcriptBlock.trim().length > 3) {
+            console.log("Transcribed speech chunk:", transcriptBlock);
+            
+            // Accumulate phrasing into the buffer to allow human breathing pauses
+            speechBufferRef.current += " " + transcriptBlock.trim();
+
+            if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
+            
+            // Wait 1.8 seconds of complete silence before assuming the candidate finished their sentence
+            speechTimeoutRef.current = setTimeout(() => {
+                const finalTranscript = speechBufferRef.current.trim();
+                if (finalTranscript.length > 0) {
+                    console.log("Final Sent Speech:", finalTranscript);
+                    sendSpeechToBackend(finalTranscript);
+                }
+                // Reset buffer for the next question
+                speechBufferRef.current = "";
+            }, 1800);
         }
       };
 
@@ -79,12 +107,36 @@ function App() {
 
     return () => {
         if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        if (activeObserverRef.current) clearInterval(activeObserverRef.current);
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
     }
   }, []);
+
+  // Shadow Observer Hook: Polls every 30s to simulate an AI looking over their shoulder
+  useEffect(() => {
+      if (session && showEditor) {
+          activeObserverRef.current = setInterval(() => {
+              if (codeRef.current && codeRef.current !== lastSentCodeRef.current) {
+                  lastSentCodeRef.current = codeRef.current;
+                  sendSpeechToBackend("[BACKGROUND_CODE_CHECK]", true);
+              }
+          }, 30000);
+      } else {
+          if (activeObserverRef.current) clearInterval(activeObserverRef.current);
+      }
+
+      return () => {
+          if (activeObserverRef.current) clearInterval(activeObserverRef.current);
+      }
+  }, [session, showEditor]);
 
   const handleEditorChange = (value) => {
       setCode(value);
       codeRef.current = value;
+
+      // Do not trigger the stuck loop if they literally haven't changed the default string yet
+      if (value.trim() === defaultCodeStr.trim()) return;
 
       // Stuck Detector: If 25 seconds pass silently, ping the LLM to intervene proactively
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
@@ -97,6 +149,9 @@ function App() {
   };
 
   const handleStartInterview = async () => {
+    if (isInitializing) return; // Prevent double clicks
+    setIsInitializing(true);
+
     // 1. Force Auto IDE Expansion for Technical Configs
     if (mode === "DSA Round" || mode === "Full-Fledged") {
         setShowEditor(true);
@@ -127,6 +182,13 @@ function App() {
           setQuestionData(data.question_data);
       }
 
+      // Start elapsed timer
+      setTimeElapsed(0);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = setInterval(() => {
+          setTimeElapsed(prev => prev + 1);
+      }, 1000);
+
       // Boot Ambient mic loop
       if (recognitionRef.current) {
           try { recognitionRef.current.start(); } catch(e) {}
@@ -142,6 +204,9 @@ function App() {
       }
     } catch (err) {
       console.error(err);
+      alert(`Failed to start: Network Initialization Error`);
+    } finally {
+        setIsInitializing(false);
     }
   };
 
@@ -190,6 +255,11 @@ function App() {
       setMessages(finalHistory);
       messagesRef.current = finalHistory;
       
+      // Shadow Observer Check: Completely discard [SILENT] payloads from UI and Audio!
+      if (data.reply && data.reply.includes("[SILENT]")) {
+          return;
+      }
+
       if (data.reply && window.speechSynthesis) {
           window.speechSynthesis.cancel(); // Abort previous to ensure fresh playback
           const utterance = new SpeechSynthesisUtterance(data.reply);
@@ -200,20 +270,86 @@ function App() {
     }
   };
 
-  const endInterview = () => {
-    setSession(null);
-    sessionRef.current = null;
+  const endInterview = async () => {
     if (recognitionRef.current) {
         recognitionRef.current.stop();
     }
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    window.location.reload();
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    
+    setIsGeneratingReport(true);
+    
+    const formData = new FormData();
+    formData.append("session_id", sessionRef.current);
+    formData.append("history", JSON.stringify(messagesRef.current));
+    formData.append("mode", mode);
+    formData.append("target_company", company);
+    if (questionData) {
+        formData.append("question_title", questionData.title || "");
+    }
+
+    try {
+        const res = await fetch("http://localhost:8000/api/interview/end", {
+            method: "POST",
+            body: formData
+        });
+        const data = await res.json();
+        setInterviewReport(data.detailed_report);
+    } catch (err) {
+        console.error("Failed to generate report:", err);
+        setInterviewReport("Critical Error: Evaluation failed to generate.");
+    } finally {
+        setIsGeneratingReport(false);
+        setSession(null);
+        sessionRef.current = null;
+    }
   };
+
+  const formatTime = (seconds) => {
+      const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const s = (seconds % 60).toString().padStart(2, '0');
+      return `${m}:${s}`;
+  };
+
+  if (isGeneratingReport) {
+      return (
+          <div style={{ padding: '50px', textAlign: 'center', color: '#fff', marginTop: '100px' }}>
+              <h1 style={{ color: '#4caf50' }}>Evaluating Candidate Performance...</h1>
+              <p style={{ fontSize: '18px', color: '#aaa' }}>The Hiring Committee is currently reviewing your transcript and coding structures.</p>
+              <div style={{ marginTop: '30px', fontStyle: 'italic', color: '#666' }}>This may take 10-15 seconds depending on interview length.</div>
+          </div>
+      );
+  }
+
+  if (interviewReport) {
+      return (
+          <div style={{ padding: '30px', maxWidth: '1000px', margin: 'auto', backgroundColor: '#1e1e1e', color: '#eee', borderRadius: '10px', marginTop: '40px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #333', paddingBottom: '20px', marginBottom: '20px' }}>
+                  <h1 style={{ margin: 0, color: '#4caf50' }}>{company} - Final Evaluation Report</h1>
+                  <div style={{ display: 'flex', gap: '15px' }}>
+                      <button onClick={() => window.print()} style={{ ...btnStyle, backgroundColor: '#ff9800' }}>📄 Save as PDF</button>
+                      <button onClick={() => window.location.reload()} style={{ ...btnStyle, backgroundColor: '#f44336' }}>Close Dashboard</button>
+                  </div>
+              </div>
+
+              <div style={{ lineHeight: '1.8', fontSize: '16px', whiteSpace: 'pre-wrap', fontFamily: "system-ui, -apple-system, sans-serif" }}>
+                  {interviewReport.replace(/\*\*/g, '').replace(/\*/g, '•')}
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div style={{ padding: '20px', maxWidth: showEditor ? '1400px' : '900px', margin: 'auto', transition: 'max-width 0.5s ease' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h1>AI Interview Platform</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+              AI Interview Platform
+              {session && (
+                  <span style={{ fontSize: '18px', color: '#ffb74d', backgroundColor: '#333', padding: '5px 12px', borderRadius: '8px' }}>
+                      ⏱️ {formatTime(timeElapsed)}
+                  </span>
+              )}
+          </h1>
           {session && (
               <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                   <span style={{ padding: '5px 15px', backgroundColor: '#333', borderRadius: '15px', color: '#4caf50', fontWeight: 'bold' }}>
@@ -252,11 +388,29 @@ function App() {
                     <div>
                         <label style={{ display: 'block', marginBottom: '5px', color: '#999', fontSize: '14px' }}>Target Company</label>
                         <input 
+                            list="company-list"
                             value={company}
                             onChange={e => setCompany(e.target.value)}
                             style={{ ...inputStyle }}
-                            placeholder="e.g. Amazon, Databricks, Apple"
+                            placeholder="Search or type company... e.g. Amazon"
                         />
+                        <datalist id="company-list">
+                            <option value="Google" />
+                            <option value="Amazon" />
+                            <option value="Facebook" />
+                            <option value="Apple" />
+                            <option value="Microsoft" />
+                            <option value="Uber" />
+                            <option value="Netflix" />
+                            <option value="Databricks" />
+                            <option value="Snowflake" />
+                            <option value="Stripe" />
+                            <option value="Airbnb" />
+                            <option value="Goldman Sachs" />
+                            <option value="Palantir" />
+                            <option value="Nvidia" />
+                            <option value="Tesla" />
+                        </datalist>
                     </div>
 
                     <div>
@@ -282,7 +436,13 @@ function App() {
                         />
                     </div>
 
-                    <button onClick={handleStartInterview} style={{ ...btnStyle, marginTop: '10px' }}>Initialize Interview Session</button>
+                    <button 
+                        onClick={handleStartInterview} 
+                        disabled={isInitializing}
+                        style={{ ...btnStyle, marginTop: '10px', opacity: isInitializing ? 0.6 : 1 }}
+                    >
+                        {isInitializing ? "Configuring Agent..." : "Initialize Interview Session"}
+                    </button>
                 </div>
             )}
 
