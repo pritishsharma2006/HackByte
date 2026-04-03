@@ -9,7 +9,6 @@ import base64
 import traceback
 
 from services.gemini_service import GeminiInterviewService
-from services.elevenlabs_service import generate_speech
 
 router = APIRouter()
 
@@ -28,14 +27,9 @@ async def start_interview(request: StartInterviewRequest):
             "No need to worry, everything will be good. Let's get started!"
         )
 
-        # Generate voice
-        audio_bytes = await generate_speech(initial_msg)
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8') if audio_bytes else None
-
         return {
             "session_id": session_id,
-            "message": initial_msg,
-            "audio_base64": audio_base64
+            "message": initial_msg
         }
     except Exception as e:
         traceback.print_exc()
@@ -72,12 +66,8 @@ async def reply_interview(
             is_coding = True
             reply_text = reply_text.replace("[CODING_ROUND]", "").strip()
 
-        audio_bytes = await generate_speech(reply_text)
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8') if audio_bytes else None
-
         return {
             "reply": reply_text,
-            "audio_base64": audio_base64,
             "is_coding_round": is_coding
         }
     except Exception as e:

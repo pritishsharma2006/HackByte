@@ -77,10 +77,9 @@ function App() {
       setMessages(newHistory);
       messagesRef.current = newHistory;
       
-      if (data.audio_base64) {
-          console.log("Playing welcome audio...");
-          const snd = new Audio("data:audio/mpeg;base64," + data.audio_base64);
-          snd.play().catch(e => console.error("Audio autoplay blocked by browser:", e));
+      if (data.message && window.speechSynthesis) {
+          const utterance = new SpeechSynthesisUtterance(data.message);
+          window.speechSynthesis.speak(utterance);
       }
     } catch (err) {
       console.error(err);
@@ -139,9 +138,9 @@ function App() {
           setShowEditor(true);
       }
       
-      if (data.audio_base64) {
-          const snd = new Audio("data:audio/mpeg;base64," + data.audio_base64);
-          snd.play().catch(e => console.error("Audio playback failed:", e));
+      if (data.reply && window.speechSynthesis) {
+          const utterance = new SpeechSynthesisUtterance(data.reply);
+          window.speechSynthesis.speak(utterance);
       }
     } catch (err) {
       console.error(err);
