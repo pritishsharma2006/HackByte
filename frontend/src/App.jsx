@@ -15,6 +15,7 @@ function App() {
   const [questionData, setQuestionData] = useState(null);
   
   // Dynamic Configuration Settings
+  const [candidateName, setCandidateName] = useState("");
   const [company, setCompany] = useState("Google");
   const [mode, setMode] = useState("Full-Fledged");
   const [resume, setResume] = useState("Software Engineer with Python and React experience.");
@@ -106,12 +107,19 @@ function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          candidate_name: candidateName.trim() || "Candidate",
           resume_text: resume,
           target_company: company,
           mode: mode
         })
       });
       const data = await res.json();
+      
+      if (data.error) {
+          alert(`Failed to start: ${data.error}`);
+          return;
+      }
+      
       setSession(data.session_id);
       sessionRef.current = data.session_id;
 
@@ -153,6 +161,7 @@ function App() {
 
     const formData = new FormData();
     formData.append("session_id", currentSession);
+    formData.append("candidate_name", candidateName.trim() || "Candidate");
     formData.append("resume_text", resume);
     formData.append("target_company", company);
     formData.append("mode", mode);
@@ -230,6 +239,16 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px', border: '1px solid #333' }}>
                     <h3 style={{ margin: 0, color: '#ccc' }}>Interview Parameters</h3>
                     
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '5px', color: '#999', fontSize: '14px' }}>Your Name</label>
+                        <input 
+                            value={candidateName}
+                            onChange={e => setCandidateName(e.target.value)}
+                            style={{ ...inputStyle }}
+                            placeholder="What should the AI call you?"
+                        />
+                    </div>
+
                     <div>
                         <label style={{ display: 'block', marginBottom: '5px', color: '#999', fontSize: '14px' }}>Target Company</label>
                         <input 

@@ -14,6 +14,7 @@ from services.question_bank_service import QuestionBankService
 router = APIRouter()
 
 class StartInterviewRequest(BaseModel):
+    candidate_name: str = "Candidate"
     resume_text: str
     target_company: str
     mode: str
@@ -34,6 +35,7 @@ async def start_interview(request: StartInterviewRequest):
 
         # Hook into Gemini to establish context using generative pipelines
         initial_msg = await GeminiInterviewService.generate_initial_greeting(
+            candidate_name=request.candidate_name,
             mode=request.mode,
             company=request.target_company,
             mood=selected_mood,
@@ -52,6 +54,7 @@ async def start_interview(request: StartInterviewRequest):
 @router.post("/reply")
 async def reply_interview(
     session_id: str = Form(...),
+    candidate_name: str = Form("Candidate"),
     resume_text: str = Form(...),
     target_company: str = Form(...),
     mode: str = Form(...),
@@ -74,6 +77,7 @@ async def reply_interview(
             question_data = {"title": question_title, "difficulty": question_difficulty}
 
         system_prompt = GeminiInterviewService.construct_system_prompt(
+            candidate_name=candidate_name,
             resume=resume_text,
             company=target_company,
             mode=mode,

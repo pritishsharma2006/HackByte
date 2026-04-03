@@ -1,22 +1,22 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import google.generativeai as genai
 
-# Setup Gemini Config
-genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
-
-# Use gemini-2.5-flash which is fast and supports audio natively
-model = genai.GenerativeModel(
-    'gemini-2.5-flash',
-    system_instruction=None  # We'll set this per-session
-)
+# Setup Gemini Config explicitly now that dotenv is loaded
+api_key = os.getenv("GEMINI_API_KEY", "")
+if api_key:
+    genai.configure(api_key=api_key)
 
 class GeminiInterviewService:
     @staticmethod
-    def construct_system_prompt(resume: str, company: str, mode: str, question_data: dict = None) -> str:
+    def construct_system_prompt(candidate_name: str, resume: str, company: str, mode: str, question_data: dict = None) -> str:
         prompt_templates = {
             "Behavioral": f'''
 You are a strict, top-tier engineering manager at {company} conducting a Behavioral interview.
-The candidate's profile is:
+The candidate's name is {candidate_name}.
+Their resume profile is:
 {resume}
 
 Rules for Behavioral Mode:
@@ -28,7 +28,8 @@ Rules for Behavioral Mode:
             ''',
             "System Design": f'''
 You are a strict Senior Staff Engineer at {company} conducting a System Design interview.
-The candidate's profile is:
+The candidate's name is {candidate_name}.
+Their resume profile is:
 {resume}
 
 Rules for System Design Mode:
@@ -48,7 +49,8 @@ Rules for System Design Mode:
 
         dsa_rules = f'''
 You are a rigorous Software Engineering Interviewer at {company} conducting a Technical Coding Round.
-The candidate's profile is:
+The candidate's name is {candidate_name}. Speak to them naturally using their name when appropriate.
+Their resume profile is:
 {resume}
 
 Rules for Technical Operations:
@@ -70,7 +72,7 @@ Rules for Technical Operations:
         return final_prompt.strip()
 
     @staticmethod
-    async def generate_initial_greeting(mode: str, company: str, mood: str, question_data: dict = None) -> str:
+    async def generate_initial_greeting(candidate_name: str, mode: str, company: str, mood: str, question_data: dict = None) -> str:
         if not os.getenv("GEMINI_API_KEY"):
             return "Please configure the GEMINI_API_KEY in the .env file."
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -81,7 +83,7 @@ Rules for Technical Operations:
             system_base += f" You are planning to ask them to solve: {question_data.get('title')}."
             
         system_base += f"\nYour CURRENT MOOD is: {mood}. DO NOT explicitly say your mood word, simply act like it."
-        system_base += "\nGenerate exactly 1 to 2 sentences of highly realistic opening conversational dialogue to greet the candidate and prepare them for the technical interview. Ask them how they are doing to kick off the conversation."
+        system_base += f"\nGenerate exactly 1 to 2 sentences of highly realistic opening conversational dialogue to greet {candidate_name} and prepare them for the technical interview. Ask them how they are doing to kick off the conversation."
         
         response = greeting_model.generate_content(system_base)
         return response.text.replace("*", "").strip()
