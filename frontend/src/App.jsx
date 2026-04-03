@@ -12,6 +12,11 @@ function App() {
   const [code, setCode] = useState("# Write your Python code here...\n");
   const codeRef = useRef(code);
   
+  // Dynamic Configuration Settings
+  const [company, setCompany] = useState("Google");
+  const [mode, setMode] = useState("Full-Fledged");
+  const [resume, setResume] = useState("Software Engineer with Python and React experience.");
+
   const videoRef = useRef(null);
   const recognitionRef = useRef(null);
 
@@ -64,9 +69,9 @@ function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          resume_text: "Software Engineer with generic experience for now.",
-          target_company: "Google",
-          mode: "Full-Fledged"
+          resume_text: resume,
+          target_company: company,
+          mode: mode
         })
       });
       const data = await res.json();
@@ -110,9 +115,9 @@ function App() {
 
     const formData = new FormData();
     formData.append("session_id", currentSession);
-    formData.append("resume_text", "Software Engineer with generic experience for now.");
-    formData.append("target_company", "Google");
-    formData.append("mode", "Full-Fledged");
+    formData.append("resume_text", resume);
+    formData.append("target_company", company);
+    formData.append("mode", mode);
     formData.append("history", JSON.stringify(messagesRef.current));
     formData.append("user_text", transcript);
 
@@ -149,7 +154,10 @@ function App() {
 
   return (
     <div style={{ padding: '20px', maxWidth: showEditor ? '1400px' : '900px', margin: 'auto', transition: 'max-width 0.5s ease' }}>
-      <h1 style={{ marginBottom: '20px' }}>AI Interview Platform (Video Call)</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h1>AI Interview Platform</h1>
+          {session && <span style={{ padding: '5px 15px', backgroundColor: '#333', borderRadius: '15px', color: '#4caf50', fontWeight: 'bold' }}>Live Session Active</span>}
+      </div>
       
       <div style={{ display: 'flex', gap: '20px' }}>
         
@@ -159,35 +167,75 @@ function App() {
             ref={videoRef} 
             autoPlay 
             muted 
-            style={{ width: '100%', borderRadius: '10px', border: '2px solid #555' }}
+            style={{ width: '100%', borderRadius: '10px', border: '2px solid #555', backgroundColor: '#000' }}
             />
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {!session ? (
-                <button onClick={handleStartInterview} style={btnStyle}>Start Interview</button>
-            ) : (
-                <>
-                <p style={{ color: '#aaa', fontSize: '13px', margin: 0 }}>Session ID: {session.substring(0,8)}...</p>
-                <button 
-                    onClick={toggleRecording} 
-                    style={{ ...btnStyle, backgroundColor: isRecording ? '#f44336' : '#4caf50' }}
-                >
-                    {isRecording ? "Listening... (Click to Stop)" : "Record Answer"}
-                </button>
-                <button onClick={() => setShowEditor(!showEditor)} style={{...btnStyle, backgroundColor: '#555'}}>
-                    {showEditor ? "Hide Editor Panel" : "Open IDE Manually"}
-                </button>
-                </>
-            )}
-            </div>
+            {!session && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px', border: '1px solid #333' }}>
+                    <h3 style={{ margin: 0, color: '#ccc' }}>Interview Parameters</h3>
+                    
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '5px', color: '#999', fontSize: '14px' }}>Target Company</label>
+                        <input 
+                            value={company}
+                            onChange={e => setCompany(e.target.value)}
+                            style={{ ...inputStyle }}
+                            placeholder="e.g. Google, Amazon, Uber"
+                        />
+                    </div>
 
-            <div style={{ border: '1px solid #444', borderRadius: '5px', padding: '15px', height: '350px', overflowY: 'auto' }}>
-            {messages.map((msg, idx) => (
-                <div key={idx} className={`mb-3 ${msg.role === 'candidate' ? 'text-blue-300' : 'text-green-300'}`}>
-                <strong>{msg.role === 'candidate' ? 'You' : 'Interviewer'}:</strong> {msg.content}
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '5px', color: '#999', fontSize: '14px' }}>Interview Mode</label>
+                        <select 
+                            value={mode}
+                            onChange={e => setMode(e.target.value)}
+                            style={{ ...inputStyle }}
+                        >
+                            <option>Full-Fledged</option>
+                            <option>Behavioral</option>
+                            <option>DSA Round</option>
+                            <option>System Design</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '5px', color: '#999', fontSize: '14px' }}>Candidate Resume (Context)</label>
+                        <textarea 
+                            value={resume}
+                            onChange={e => setResume(e.target.value)}
+                            style={{ ...inputStyle, minHeight: '80px', resize: 'vertical' }}
+                        />
+                    </div>
+
+                    <button onClick={handleStartInterview} style={{ ...btnStyle, marginTop: '10px' }}>Initialize Interview</button>
                 </div>
-            ))}
-            </div>
+            )}
+
+            {session && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <button 
+                        onClick={toggleRecording} 
+                        style={{ ...btnStyle, backgroundColor: isRecording ? '#f44336' : '#4caf50' }}
+                    >
+                        {isRecording ? "Listening... (Click to Stop)" : "Record Vocal Answer"}
+                    </button>
+                    {(mode === "DSA Round" || mode === "Full-Fledged") && (
+                        <button onClick={() => setShowEditor(!showEditor)} style={{...btnStyle, backgroundColor: '#555'}}>
+                            {showEditor ? "Hide Editor Panel" : "Open IDE Manually"}
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {session && (
+                <div style={{ border: '1px solid #444', borderRadius: '5px', padding: '15px', height: '300px', overflowY: 'auto' }}>
+                {messages.map((msg, idx) => (
+                    <div key={idx} className={`mb-3 ${msg.role === 'candidate' ? 'text-blue-300' : 'text-green-300'}`}>
+                    <strong>{msg.role === 'candidate' ? 'You' : 'Interviewer'}:</strong> {msg.content}
+                    </div>
+                ))}
+                </div>
+            )}
         </div>
 
         {/* Right pane: Dynamic Monaco Display */}
@@ -214,6 +262,17 @@ function App() {
     </div>
   );
 }
+
+const inputStyle = {
+    width: '100%',
+    padding: '10px',
+    borderRadius: '5px',
+    border: '1px solid #444',
+    backgroundColor: '#2d2d2d',
+    color: '#fff',
+    fontSize: '15px',
+    boxSizing: 'border-box'
+};
 
 const btnStyle = {
   padding: '12px 20px', fontSize: '16px', cursor: 'pointer',

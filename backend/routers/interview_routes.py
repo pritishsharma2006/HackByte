@@ -7,8 +7,8 @@ import os
 import shutil
 import base64
 import traceback
-
 from services.gemini_service import GeminiInterviewService
+from services.question_bank_service import QuestionBankService
 
 router = APIRouter()
 
@@ -52,10 +52,16 @@ async def reply_interview(
         except Exception:
             parsed_history = []
 
+        # Inject algorithmic dynamic selection if logic requires it
+        question_data = None
+        if mode in ["DSA Round", "Full-Fledged"]:
+            question_data = QuestionBankService.get_random_question(target_company)
+
         system_prompt = GeminiInterviewService.construct_system_prompt(
             resume=resume_text,
             company=target_company,
-            style="Realism & Adaptive Pressure"
+            mode=mode,
+            question_data=question_data
         )
 
         reply_text = await GeminiInterviewService.process_text_reply(parsed_history, user_text, system_prompt, current_code)

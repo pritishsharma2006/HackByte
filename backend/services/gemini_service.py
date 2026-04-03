@@ -12,24 +12,60 @@ model = genai.GenerativeModel(
 
 class GeminiInterviewService:
     @staticmethod
-    def construct_system_prompt(resume: str, company: str, style: str) -> str:
-        prompt = f"""You are a highly realistic technical interviewer for {company}. The candidate is applying for a software engineering role.
-The company style is: {style}.
-
-Candidate Resume Context:
+    def construct_system_prompt(resume: str, company: str, mode: str, question_data: dict = None) -> str:
+        prompt_templates = {
+            "Behavioral": f'''
+You are a strict, top-tier engineering manager at {company} conducting a Behavioral interview.
+The candidate's profile is:
 {resume}
 
-RULES:
-1. Begin the first interaction with polite, reassuring small talk (e.g., "Hi, how are you feeling?").
-2. Ask one question at a time. Wait for the candidate's answer.
-3. ADAPTIVE HINTING: If the candidate struggles, provide subtle hints. Maximum of 3 hints per question. If they still fail after 3 hints, move on to the next question.
-4. PRESSURE & FOLLOW-UPS: If the candidate gives a suboptimal solution, challenge them (e.g., "This is O(n^2), can you do better?").
-5. Do not break character. Be as realistic as a human engineering manager: sometimes calm, sometimes strict.
-7. The candidate is talking to you directly. Read their transcribed text and respond naturally.
-8. If you want to ask a technical coding question or want them to write code, AT THE EXACT END of your speech, append this exact tag: `[CODING_ROUND]`.
-9. The candidate has a live Monaco code editor. If they submit code, it will be provided to you in the prompt. You must review it, point out edge cases, syntax bugs, or time complexities natively!
-"""
-        return prompt
+Rules for Behavioral Mode:
+1. ONLY ask behavioral, cultural, or resume-deep-dive questions.
+2. Demand the STAR method (Situation, Task, Action, Result) in their answers.
+3. Do NOT ask any coding algorithms or system design questions.
+4. If they give vague answers, explicitly challenge them on missing details.
+5. Keep your responses conversational (2-4 sentences max). You are speaking to them directly.
+            ''',
+            "System Design": f'''
+You are a strict Senior Staff Engineer at {company} conducting a System Design interview.
+The candidate's profile is:
+{resume}
+
+Rules for System Design Mode:
+1. Focus entirely on architecture, scaling systems, load balancers, database choices, APIs, networks, and tradeoffs.
+2. Probe into failure cases (e.g. "What if the DB goes down?", "How does it handle 1M RPS?").
+3. Do NOT ask them to write code. This is purely architectural block-level design.
+4. Challenge their choices aggressively.
+5. Keep your responses conversational length (2-4 sentences max). You are speaking directly.
+            '''
+        }
+
+        # Isolate technical configurations for algorithms
+        question_block = "Provide them with a challenging Data Structures and Algorithms question."
+        if question_data:
+            question_block = (f"You MUST ask them to solve this precise algorithmic question commonly asked at your company: "
+                              f"'{question_data['title']}' (Difficulty: {question_data['difficulty']}).")
+
+        dsa_rules = f'''
+You are a rigorous Software Engineering Interviewer at {company} conducting a Technical Coding Round.
+The candidate's profile is:
+{resume}
+
+Rules for Technical Operations:
+1. {question_block}
+2. ADAPTIVE HINTING: Provide subtle hints only if they struggle. Challenge suboptimal time complexities (e.g. "This is O(N^2), can you do better?").
+3. Keep your responses conversational length (2-4 sentences max).
+4. The candidate gives vocal responses. Read their parsed text and respond fluidly.
+5. IMPORTANT EDITOR TRIGGER: If you want them to begin typing code or ask a new coding question, you MUST append this exact tag exactly at the very end of your response string: `[CODING_ROUND]`.
+6. Live Syntax Bridge: They have a live IDE. If code is provided in your context, critique it directly (syntax bugs, edge cases) in your response!
+        '''
+        
+        prompt_templates["DSA Round"] = dsa_rules
+        prompt_templates["Full-Fledged"] = dsa_rules
+
+        # Route the final system template cleanly
+        final_prompt = prompt_templates.get(mode, dsa_rules)
+        return final_prompt.strip()
 
     @staticmethod
     async def process_text_reply(history: list, user_text: str, system_prompt: str, current_code: str = None) -> str:
