@@ -5,12 +5,14 @@ import './index.css';
 function App() {
   const [session, setSession] = useState(null);
   const sessionRef = useRef(null);
-  const [isRecording, setIsRecording] = useState(false);
+  const [isRecording, setIsRecording] = useState(false); // Used to visually indicate mic is hot
   const [messages, setMessages] = useState([]);
   const messagesRef = useRef([]);
   const [showEditor, setShowEditor] = useState(false);
   const [code, setCode] = useState("# Write your Python code here...\n");
   const codeRef = useRef(code);
+  const idleTimerRef = useRef(null);
+  const [questionData, setQuestionData] = useState(null);
   
   // Dynamic Configuration Settings
   const [company, setCompany] = useState("Google");
@@ -20,7 +22,7 @@ function App() {
   const videoRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // Initialize Webcam & Speech Recognition
+  // Initialize Webcam & Ambient Speech Recognition Loop
   useEffect(() => {
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then(stream => {
@@ -33,37 +35,72 @@ function App() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true;  // The mic stays awake indefinitely
       recognition.interimResults = false;
       recognition.lang = 'en-US';
 
+      recognition.onstart = () => {
+          setIsRecording(true);
+      };
+
       recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        console.log("Transcribed speech:", transcript);
-        sendSpeechToBackend(transcript);
+        // Interruption Engine: Instantly silence the AI if candidate talks!
+        window.speechSynthesis.cancel();
+        
+        // Piece together the latest block of speech
+        let transcriptBlock = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            transcriptBlock += event.results[i][0].transcript;
+        }
+
+        if (transcriptBlock.trim()) {
+            console.log("Transcribed speech:", transcriptBlock);
+            sendSpeechToBackend(transcriptBlock);
+        }
       };
 
       recognition.onerror = (event) => {
         console.error("Speech recognition error:", event.error);
-        setIsRecording(false);
       };
 
       recognition.onend = () => {
         setIsRecording(false);
+        // The Magic Loop: If the session is alive, force the mic back awake
+        if (sessionRef.current) {
+            try { recognition.start(); } catch(e) {}
+        }
       };
 
       recognitionRef.current = recognition;
     } else {
       console.warn("SpeechRecognition API not supported in this browser.");
     }
+
+    return () => {
+        if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    }
   }, []);
 
   const handleEditorChange = (value) => {
       setCode(value);
       codeRef.current = value;
+
+      // Stuck Detector: If 25 seconds pass silently, ping the LLM to intervene proactively
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => {
+          if (sessionRef.current) {
+              const pingMsg = "[CANDIDATE IS SILENT/STUCK: The candidate stopped coding and speaking for 25 seconds. Briefly check in to offer a subtle hint.]";
+              sendSpeechToBackend(pingMsg, true); // True marks it as hidden
+          }
+      }, 25000);
   };
 
   const handleStartInterview = async () => {
+    // 1. Force Auto IDE Expansion for Technical Configs
+    if (mode === "DSA Round" || mode === "Full-Fledged") {
+        setShowEditor(true);
+    }
+
     try {
       const res = await fetch("http://localhost:8000/api/interview/start", {
         method: "POST",
@@ -77,6 +114,15 @@ function App() {
       const data = await res.json();
       setSession(data.session_id);
       sessionRef.current = data.session_id;
+
+      if (data.question_data) {
+          setQuestionData(data.question_data);
+      }
+
+      // Boot Ambient mic loop
+      if (recognitionRef.current) {
+          try { recognitionRef.current.start(); } catch(e) {}
+      }
       
       const newHistory = [{ role: "model", content: data.message }];
       setMessages(newHistory);
@@ -91,27 +137,19 @@ function App() {
     }
   };
 
-  const toggleRecording = () => {
-    if (!session) return alert("Start interview first!");
-    if (!recognitionRef.current) return alert("Speech Recognition not supported in this browser.");
-    
-    if (isRecording) {
-      recognitionRef.current.stop();
-      setIsRecording(false);
-    } else {
-      recognitionRef.current.start();
-      setIsRecording(true);
-    }
-  };
-
-  const sendSpeechToBackend = async (transcript) => {
+  const sendSpeechToBackend = async (transcript, isHidden = false) => {
     const currentSession = sessionRef.current;
     if (!currentSession) return;
     
+    // Clear the idle stuck timer if they natively spoke to us!
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    
     // Optimistically update history with candidate's true response
-    const newMessages = [...messagesRef.current, { role: "candidate", content: transcript }];
-    setMessages(newMessages);
-    messagesRef.current = newMessages;
+    if (!isHidden) {
+        const newMessages = [...messagesRef.current, { role: "candidate", content: transcript }];
+        setMessages(newMessages);
+        messagesRef.current = newMessages;
+    }
 
     const formData = new FormData();
     formData.append("session_id", currentSession);
@@ -120,6 +158,11 @@ function App() {
     formData.append("mode", mode);
     formData.append("history", JSON.stringify(messagesRef.current));
     formData.append("user_text", transcript);
+
+    if (questionData) {
+        formData.append("question_title", questionData.title || "");
+        formData.append("question_difficulty", questionData.difficulty || "");
+    }
 
     // Provide the active code safely to Gemini's prompt space if the editor is out
     if (showEditor) {
@@ -137,13 +180,9 @@ function App() {
       const finalHistory = [...messagesRef.current, { role: "model", content: data.reply }];
       setMessages(finalHistory);
       messagesRef.current = finalHistory;
-
-      // Unfold the IDE panel intelligently
-      if (data.is_coding_round) {
-          setShowEditor(true);
-      }
       
       if (data.reply && window.speechSynthesis) {
+          window.speechSynthesis.cancel(); // Abort previous to ensure fresh playback
           const utterance = new SpeechSynthesisUtterance(data.reply);
           window.speechSynthesis.speak(utterance);
       }
@@ -152,11 +191,28 @@ function App() {
     }
   };
 
+  const endInterview = () => {
+    setSession(null);
+    sessionRef.current = null;
+    if (recognitionRef.current) {
+        recognitionRef.current.stop();
+    }
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    window.location.reload();
+  };
+
   return (
     <div style={{ padding: '20px', maxWidth: showEditor ? '1400px' : '900px', margin: 'auto', transition: 'max-width 0.5s ease' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h1>AI Interview Platform</h1>
-          {session && <span style={{ padding: '5px 15px', backgroundColor: '#333', borderRadius: '15px', color: '#4caf50', fontWeight: 'bold' }}>Live Session Active</span>}
+          {session && (
+              <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                  <span style={{ padding: '5px 15px', backgroundColor: '#333', borderRadius: '15px', color: '#4caf50', fontWeight: 'bold' }}>
+                      {isRecording ? "Listening Ambiently..." : "Ambient Mic Parsing..."}
+                  </span>
+                  <button onClick={endInterview} style={{ ...btnStyle, backgroundColor: '#f44336', padding: '8px 15px' }}>Leave Call</button>
+              </div>
+          )}
       </div>
       
       <div style={{ display: 'flex', gap: '20px' }}>
@@ -180,7 +236,7 @@ function App() {
                             value={company}
                             onChange={e => setCompany(e.target.value)}
                             style={{ ...inputStyle }}
-                            placeholder="e.g. Google, Amazon, Uber"
+                            placeholder="e.g. Amazon, Databricks, Apple"
                         />
                     </div>
 
@@ -207,28 +263,12 @@ function App() {
                         />
                     </div>
 
-                    <button onClick={handleStartInterview} style={{ ...btnStyle, marginTop: '10px' }}>Initialize Interview</button>
+                    <button onClick={handleStartInterview} style={{ ...btnStyle, marginTop: '10px' }}>Initialize Interview Session</button>
                 </div>
             )}
 
             {session && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <button 
-                        onClick={toggleRecording} 
-                        style={{ ...btnStyle, backgroundColor: isRecording ? '#f44336' : '#4caf50' }}
-                    >
-                        {isRecording ? "Listening... (Click to Stop)" : "Record Vocal Answer"}
-                    </button>
-                    {(mode === "DSA Round" || mode === "Full-Fledged") && (
-                        <button onClick={() => setShowEditor(!showEditor)} style={{...btnStyle, backgroundColor: '#555'}}>
-                            {showEditor ? "Hide Editor Panel" : "Open IDE Manually"}
-                        </button>
-                    )}
-                </div>
-            )}
-
-            {session && (
-                <div style={{ border: '1px solid #444', borderRadius: '5px', padding: '15px', height: '300px', overflowY: 'auto' }}>
+                <div style={{ border: '1px solid #444', borderRadius: '5px', padding: '15px', height: '350px', overflowY: 'auto' }}>
                 {messages.map((msg, idx) => (
                     <div key={idx} className={`mb-3 ${msg.role === 'candidate' ? 'text-blue-300' : 'text-green-300'}`}>
                     <strong>{msg.role === 'candidate' ? 'You' : 'Interviewer'}:</strong> {msg.content}

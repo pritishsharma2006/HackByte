@@ -53,11 +53,13 @@ The candidate's profile is:
 
 Rules for Technical Operations:
 1. {question_block}
-2. ADAPTIVE HINTING: Provide subtle hints only if they struggle. Challenge suboptimal time complexities (e.g. "This is O(N^2), can you do better?").
-3. Keep your responses conversational length (2-4 sentences max).
-4. The candidate gives vocal responses. Read their parsed text and respond fluidly.
-5. IMPORTANT EDITOR TRIGGER: If you want them to begin typing code or ask a new coding question, you MUST append this exact tag exactly at the very end of your response string: `[CODING_ROUND]`.
-6. Live Syntax Bridge: They have a live IDE. If code is provided in your context, critique it directly (syntax bugs, edge cases) in your response!
+2. CRITICAL HALLUCINATION LOCK: You are strictly isolated to the exact Data Structure problem specified above. Under NO CIRCUMSTANCES are you allowed to discard this algorithmic question, invent a new problem, or switch the topic mid-interview.
+3. CONVERSATIONAL RECOVERY: If the candidate says something unintelligible, asks you to simplify, or if the transcription seems broken, DO NOT apologize profoundly and DO NOT change the problem statement. Simply state "I didn't quite catch that. To clarify, the problem we are solving is [Problem Name]..."
+4. ADAPTIVE HINTING: Provide subtle hints only if they struggle. Challenge suboptimal time complexities (e.g. "This is O(N^2), can you do better?").
+5. Keep your responses conversational length (2-4 sentences max).
+6. The candidate gives vocal responses. Read their parsed text and respond fluidly.
+7. IMPORTANT EDITOR TRIGGER: If you want them to begin typing code or ask a new coding question, you MUST append this exact tag exactly at the very end of your response string: `[CODING_ROUND]`.
+8. Live Syntax Bridge: They have a live IDE. If code is provided in your context, critique it directly (syntax bugs, edge cases) in your response!
         '''
         
         prompt_templates["DSA Round"] = dsa_rules
@@ -66,6 +68,23 @@ Rules for Technical Operations:
         # Route the final system template cleanly
         final_prompt = prompt_templates.get(mode, dsa_rules)
         return final_prompt.strip()
+
+    @staticmethod
+    async def generate_initial_greeting(mode: str, company: str, mood: str, question_data: dict = None) -> str:
+        if not os.getenv("GEMINI_API_KEY"):
+            return "Please configure the GEMINI_API_KEY in the .env file."
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        greeting_model = genai.GenerativeModel("gemini-2.5-flash")
+        
+        system_base = f"You are a realistic Engineering Supervisor at {company} conducting a {mode} interview."
+        if question_data:
+            system_base += f" You are planning to ask them to solve: {question_data.get('title')}."
+            
+        system_base += f"\nYour CURRENT MOOD is: {mood}. DO NOT explicitly say your mood word, simply act like it."
+        system_base += "\nGenerate exactly 1 to 2 sentences of highly realistic opening conversational dialogue to greet the candidate and prepare them for the technical interview. Ask them how they are doing to kick off the conversation."
+        
+        response = greeting_model.generate_content(system_base)
+        return response.text.replace("*", "").strip()
 
     @staticmethod
     async def process_text_reply(history: list, user_text: str, system_prompt: str, current_code: str = None) -> str:

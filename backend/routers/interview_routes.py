@@ -7,6 +7,7 @@ import os
 import shutil
 import base64
 import traceback
+import random
 from services.gemini_service import GeminiInterviewService
 from services.question_bank_service import QuestionBankService
 
@@ -21,15 +22,28 @@ class StartInterviewRequest(BaseModel):
 async def start_interview(request: StartInterviewRequest):
     try:
         session_id = str(uuid.uuid4())
-        initial_msg = (
-            "Hi there! I'm your interviewer for today. "
-            "How are you feeling? Aren't you a little anxious? "
-            "No need to worry, everything will be good. Let's get started!"
+        
+        # Select an ambient mood to keep interviews completely unique
+        moods = ["Strict & Intense", "Warm & Encouraging", "Skeptical", "Calm & Methodical"]
+        selected_mood = random.choice(moods)
+
+        # Preload target questions so the greeting understands what it's preparing the candidate for
+        question_data = None
+        if request.mode in ["DSA Round", "Full-Fledged"]:
+            question_data = QuestionBankService.get_random_question(request.target_company)
+
+        # Hook into Gemini to establish context using generative pipelines
+        initial_msg = await GeminiInterviewService.generate_initial_greeting(
+            mode=request.mode,
+            company=request.target_company,
+            mood=selected_mood,
+            question_data=question_data
         )
 
         return {
             "session_id": session_id,
-            "message": initial_msg
+            "message": initial_msg,
+            "question_data": question_data
         }
     except Exception as e:
         traceback.print_exc()
@@ -43,6 +57,8 @@ async def reply_interview(
     mode: str = Form(...),
     history: str = Form(...), # JSON string array
     user_text: str = Form(...), # Transcribed speech from browser
+    question_title: str = Form(None),
+    question_difficulty: str = Form(None),
     current_code: str = Form(None) # Optional code string from Monaco
 ):
     try:
@@ -52,10 +68,10 @@ async def reply_interview(
         except Exception:
             parsed_history = []
 
-        # Inject algorithmic dynamic selection if logic requires it
+        # Re-initialize the EXACT locked problem from the frontend state
         question_data = None
-        if mode in ["DSA Round", "Full-Fledged"]:
-            question_data = QuestionBankService.get_random_question(target_company)
+        if question_title:
+            question_data = {"title": question_title, "difficulty": question_difficulty}
 
         system_prompt = GeminiInterviewService.construct_system_prompt(
             resume=resume_text,
