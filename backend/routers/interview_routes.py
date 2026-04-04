@@ -125,9 +125,19 @@ async def end_interview(
             question_data=question_data
         )
 
+        # Parse score from the last line e.g. "SCORE: 72/100"
+        import re
+        score = None
+        score_match = re.search(r'SCORE:\s*(\d+)\s*/\s*100', detailed_report)
+        if score_match:
+            score = int(score_match.group(1))
+            # Strip the score line from the report body
+            detailed_report = re.sub(r'\n*SCORE:\s*\d+\s*/\s*100\s*$', '', detailed_report).strip()
+
         return {
             "status": "completed",
-            "detailed_report": detailed_report
+            "detailed_report": detailed_report,
+            "score": score
         }
     except Exception as e:
         traceback.print_exc()

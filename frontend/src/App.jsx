@@ -32,6 +32,7 @@ function App() {
     // Phase 3 Analytics States
     const [isGeneratingReport, setIsGeneratingReport] = useState(false);
     const [interviewReport, setInterviewReport] = useState(null);
+    const [interviewScore, setInterviewScore] = useState(null);
 
     // Dynamic Configuration Settings
     const [candidateName, setCandidateName] = useState("");
@@ -305,6 +306,9 @@ function App() {
             });
             const data = await res.json();
             setInterviewReport(data.detailed_report);
+            if (data.score !== null && data.score !== undefined) {
+                setInterviewScore(data.score);
+            }
         } catch (err) {
             console.error("Failed to generate report:", err);
             setInterviewReport("Critical Error: Evaluation failed to generate.");
@@ -332,6 +336,11 @@ function App() {
     }
 
     if (interviewReport) {
+        const scoreColor = interviewScore >= 80 ? '#4caf50' : interviewScore >= 60 ? '#ff9800' : interviewScore >= 40 ? '#ff5722' : '#f44336';
+        const scoreLabel = interviewScore >= 80 ? 'Exceptional' : interviewScore >= 60 ? 'Strong' : interviewScore >= 40 ? 'Average' : 'Needs Work';
+        const circumference = 2 * Math.PI * 54;
+        const strokeDashoffset = circumference - (circumference * (interviewScore || 0)) / 100;
+
         return (
             <div style={{ padding: '30px', maxWidth: '1000px', margin: 'auto', backgroundColor: '#1e1e1e', color: '#eee', borderRadius: '10px', marginTop: '40px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #333', paddingBottom: '20px', marginBottom: '20px' }}>
@@ -341,6 +350,35 @@ function App() {
                         <button onClick={() => window.location.reload()} style={{ ...btnStyle, backgroundColor: '#f44336' }}>Close Dashboard</button>
                     </div>
                 </div>
+
+                {interviewScore !== null && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '30px', padding: '25px', backgroundColor: '#252525', borderRadius: '12px', marginBottom: '25px', border: `1px solid ${scoreColor}33` }}>
+                        <div style={{ position: 'relative', width: '120px', height: '120px', flexShrink: 0 }}>
+                            <svg width="120" height="120" viewBox="0 0 120 120">
+                                <circle cx="60" cy="60" r="54" fill="none" stroke="#333" strokeWidth="8" />
+                                <circle 
+                                    cx="60" cy="60" r="54" fill="none" 
+                                    stroke={scoreColor} strokeWidth="8" 
+                                    strokeLinecap="round"
+                                    strokeDasharray={circumference}
+                                    strokeDashoffset={strokeDashoffset}
+                                    transform="rotate(-90 60 60)"
+                                    style={{ transition: 'stroke-dashoffset 1.5s ease-out' }}
+                                />
+                            </svg>
+                            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
+                                <div style={{ fontSize: '28px', fontWeight: 'bold', color: scoreColor }}>{interviewScore}</div>
+                                <div style={{ fontSize: '11px', color: '#888' }}>/100</div>
+                            </div>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '22px', fontWeight: 'bold', color: scoreColor, marginBottom: '5px' }}>{scoreLabel}</div>
+                            <div style={{ fontSize: '14px', color: '#999', lineHeight: '1.5' }}>
+                                Problem Solving (30) • Code Quality (30) • Communication (20) • Optimization (20)
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div style={{ lineHeight: '1.8', fontSize: '16px', whiteSpace: 'pre-wrap', fontFamily: "system-ui, -apple-system, sans-serif" }}>
                     {interviewReport.replace(/\*\*/g, '').replace(/\*/g, '•')}
