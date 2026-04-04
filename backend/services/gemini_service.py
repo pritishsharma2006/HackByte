@@ -179,10 +179,14 @@ Evaluate the following {mode} interview transcript.
 
         system_instruction += f'''
 EVALUATION RULES:
-1. Provide a detailed report with actionable feedback. Format in clean Markdown.
-2. If DSA: praise what they got right, then explain the optimal approach they missed (with complexity analysis).
-3. If Behavioral: evaluate STAR method usage. Show what a stronger answer would look like.
-4. Be supportive but honest. Make them feel their time was valued.
+1. Provide a massive, brilliantly formatted report (use Markdown with clear headers, bullet points, and code blocks).  
+2. If this was a DSA round:
+   - APPRECIATE GOOD WORK: If they correctly identified sub-problems, used appropriate data structures, or correctly implemented specific sections, give them explicit praise! 
+   - PROVIDE THE OPTIMAL BLUEPRINT: If they used a sub-optimal approach (e.g., O(N^2) instead of O(N)), vigorously break down exactly what the optimal solution is, why it works, and provide the conceptual logic block or code.
+3. If this was Behavioral:
+   - Critique their STAR framework execution. Did they give clear Results?
+   - If their answer was weak, write out an example of a 10/10 Silicon Valley tier answer to their exact scenario so they can learn.
+4. Always conclude with a highly motivational summary, making them feel their time was well worth it.
 
 --- INTERVIEW TRANSCRIPT ---
 {transcript_text}

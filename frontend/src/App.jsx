@@ -2,16 +2,23 @@ import { useState, useRef, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import './index.css';
 
+const BOILERPLATES = {
+    python: "def solve():\n    pass\n",
+    cpp: "#include <iostream>\n#include <vector>\nusing namespace std;\n\nclass Solution {\npublic:\n    void solve() {\n        \n    }\n};",
+    java: "import java.util.*;\n\nclass Solution {\n    public void solve() {\n        \n    }\n}",
+    javascript: "function solve() {\n    \n}"
+};
+
 function App() {
     const [session, setSession] = useState(null);
     const sessionRef = useRef(null);
-    const [isRecording, setIsRecording] = useState(false); // Used to visually indicate mic is hot
+    const [isRecording, setIsRecording] = useState(false);
     const [messages, setMessages] = useState([]);
     const messagesRef = useRef([]);
     const [showEditor, setShowEditor] = useState(false);
-    const [code, setCode] = useState("# Write your Python code here...\n");
+    const [language, setLanguage] = useState("python");
+    const [code, setCode] = useState(BOILERPLATES["python"]);
     const codeRef = useRef(code);
-    const defaultCodeStr = "# Write your Python code here...\n";
     const idleTimerRef = useRef(null);
     const activeObserverRef = useRef(null);
     const timerIntervalRef = useRef(null);
@@ -136,7 +143,8 @@ function App() {
         codeRef.current = value;
 
         // Do not trigger the stuck loop if they literally haven't changed the default string yet
-        if (value.trim() === defaultCodeStr.trim()) return;
+        const isDefault = Object.values(BOILERPLATES).some(b => value.trim() === b.trim());
+        if (isDefault) return;
 
         // Stuck Detector: If 25 seconds pass silently, ping the LLM to intervene proactively
         if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
@@ -151,11 +159,6 @@ function App() {
     const handleStartInterview = async () => {
         if (isInitializing) return; // Prevent double clicks
         setIsInitializing(true);
-
-        // 1. Force Auto IDE Expansion for Technical Configs
-        if (mode === "DSA Round" || mode === "Full-Fledged") {
-            setShowEditor(true);
-        }
 
         try {
             const res = await fetch("http://localhost:8000/api/interview/start", {
@@ -255,6 +258,11 @@ function App() {
             setMessages(finalHistory);
             messagesRef.current = finalHistory;
 
+            // Trigger animated editor expansion
+            if (data.is_coding_round) {
+                setShowEditor(true);
+            }
+
             // Shadow Observer Check: Completely discard [SILENT] payloads from UI and Audio!
             if (data.reply && data.reply.includes("[SILENT]")) {
                 return;
@@ -345,7 +353,7 @@ function App() {
         <div style={{ padding: '20px', maxWidth: showEditor ? '1400px' : '900px', margin: 'auto', transition: 'max-width 0.5s ease' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h1 style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                    AI Interview Platform
+                    {session ? `${company} - ${mode}` : 'AI Interview Platform'}
                     {session && (
                         <span style={{ fontSize: '18px', color: '#ffb74d', backgroundColor: '#333', padding: '5px 12px', borderRadius: '8px' }}>
                             ⏱️ {formatTime(timeElapsed)}
@@ -473,24 +481,68 @@ function App() {
                 </div>
 
                 {/* Right pane: Dynamic Monaco Display */}
-                {showEditor && (
-                    <div style={{ flex: 1, borderRadius: '10px', overflow: 'hidden', border: '2px solid #444', height: '800px', backgroundColor: '#1e1e1e' }}>
-                        <Editor
-                            height="100%"
-                            theme="vs-dark"
-                            defaultLanguage="python"
-                            value={code}
-                            onChange={handleEditorChange}
-                            options={{
-                                minimap: { enabled: false },
-                                fontSize: 16,
-                                wordWrap: "on",
-                                scrollBeyondLastLine: false,
-                                padding: { top: 20 }
-                            }}
-                        />
+                <div style={{ 
+                    flex: showEditor ? '1' : '0', 
+                    width: showEditor ? 'auto' : '0px', 
+                    opacity: showEditor ? 1 : 0, 
+                    overflow: 'hidden', 
+                    transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)', 
+                    display: 'flex', 
+                    flexDirection: 'column' 
+                }}>
+                    <div style={{ 
+                        borderRadius: '10px', 
+                        border: '2px solid #555', 
+                        height: '800px', 
+                        backgroundColor: '#1E1E1E', 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        overflow: 'hidden', 
+                        boxShadow: '0 10px 30px rgba(0,0,0,0.5)' 
+                    }}>
+                        <div style={{ padding: '10px 15px', backgroundColor: '#2d2d2d', borderBottom: '1px solid #444', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ color: '#ccc', fontWeight: 'bold' }}>Code Editor</span>
+                            <select 
+                                value={language} 
+                                onChange={(e) => {
+                                    const newLang = e.target.value;
+                                    const newBoilerplate = BOILERPLATES[newLang];
+                                    const isDefault = Object.values(BOILERPLATES).some(b => code.trim() === b.trim());
+                                    
+                                    if (!isDefault) {
+                                        if (!window.confirm("Changing language will reset your code to the default boilerplate. Proceed?")) return;
+                                    }
+                                    
+                                    setLanguage(newLang);
+                                    setCode(newBoilerplate);
+                                    codeRef.current = newBoilerplate;
+                                }}
+                                style={{ backgroundColor: '#1e1e1e', color: '#fff', border: '1px solid #555', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer' }}
+                            >
+                                <option value="python">Python 3</option>
+                                <option value="cpp">C++</option>
+                                <option value="java">Java</option>
+                                <option value="javascript">JavaScript</option>
+                            </select>
+                        </div>
+                        {showEditor && (
+                            <Editor
+                                height="100%"
+                                theme="vs-dark"
+                                language={language}
+                                value={code}
+                                onChange={handleEditorChange}
+                                options={{
+                                    minimap: { enabled: false },
+                                    fontSize: 16,
+                                    wordWrap: "on",
+                                    scrollBeyondLastLine: false,
+                                    padding: { top: 20 }
+                                }}
+                            />
+                        )}
                     </div>
-                )}
+                </div>
 
             </div>
         </div>
